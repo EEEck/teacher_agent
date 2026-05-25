@@ -1,6 +1,6 @@
 # KlassenPilot (Local Prototype)
 
-KlassenPilot is a minimal teacher-level AI copilot prototype for a Gymnasium teacher. It currently supports one class (`Chemie 9b`) and two workflows:
+KlassenPilot is a minimal teacher-level AI copilot prototype for a Gymnasium teacher. It currently supports one class (`Klasse 9b`) with Chemie + Englisch focus and two workflows:
 
 1. Log a lesson from rough notes.
 2. Generate the next lesson plan from accumulated class memory.
@@ -24,7 +24,7 @@ teacher_wiki/
 ├── subjects/
 │   └── chemie.md
 └── classes/
-    └── chemie_9b_2026_27/
+    └── class_9b_2026_27/
         ├── course_state.md
         ├── lesson_graph.md
         ├── student_notes.md
