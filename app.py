@@ -1,148 +1,32 @@
 from __future__ import annotations
 
-import json
-import os
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict
+import asyncio
+from collections.abc import Coroutine
+from typing import Any
 
 import streamlit as st
 
-try:
-    from agents import Agent, Runner
-except ImportError as exc:
-    Agent = None
-    Runner = None
-    IMPORT_ERROR = exc
-else:
-    IMPORT_ERROR = None
+from teacher_agent.backend import (
+    bootstrap_app,
+    generate_plan,
+    save_memory,
+    structure_lesson,
+)
+from teacher_agent.contracts import (
+    GeneratePlanRequest,
+    MemoryDraft,
+    StructureLessonRequest,
+    TARGET_MEMORY_FILENAMES,
+    class_option_map,
+    lesson_plan_from_session,
+    memory_drafts_from_session,
+    save_memory_request_from_session,
+    update_bundle_from_session,
+)
 
 
-ROOT = Path(__file__).parent
-WIKI_ROOT = ROOT / "teacher_wiki"
-CLASS_DIR = WIKI_ROOT / "classes" / "class_9b_2026_27"
-
-TARGET_FILES = {
-    "lesson_graph.md": CLASS_DIR / "lesson_graph.md",
-    "course_state.md": CLASS_DIR / "course_state.md",
-    "misconceptions.md": CLASS_DIR / "misconceptions.md",
-    "student_notes.md": CLASS_DIR / "student_notes.md",
-    "open_loops.md": CLASS_DIR / "open_loops.md",
-}
-
-
-@dataclass
-class ClassConfig:
-    key: str
-    label: str
-    class_dir: Path
-
-
-CLASS_OPTIONS = {
-    "class_9b_2026_27": ClassConfig(
-        key="class_9b_2026_27",
-        label="Klasse 9b (Chemie + Englisch)",
-        class_dir=CLASS_DIR,
-    )
-}
-
-
-def read_markdown(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
-
-
-def write_markdown(path: Path, content: str) -> None:
-    path.write_text(content.strip() + "\n", encoding="utf-8")
-
-
-def load_context(config: ClassConfig) -> Dict[str, str]:
-    context_files = {
-        "index.md": WIKI_ROOT / "index.md",
-        "log.md": WIKI_ROOT / "log.md",
-        "teacher_profile.md": WIKI_ROOT / "teacher_profile.md",
-        "subjects/chemie.md": WIKI_ROOT / "subjects" / "chemie.md",
-        "subjects/english.md": WIKI_ROOT / "subjects" / "english.md",
-        "classes/course_state.md": config.class_dir / "course_state.md",
-        "classes/lesson_graph.md": config.class_dir / "lesson_graph.md",
-        "classes/student_notes.md": config.class_dir / "student_notes.md",
-        "classes/misconceptions.md": config.class_dir / "misconceptions.md",
-        "classes/open_loops.md": config.class_dir / "open_loops.md",
-    }
-    return {name: read_markdown(path) for name, path in context_files.items()}
-
-
-def build_structuring_prompt(notes: str, context: Dict[str, str]) -> str:
-    context_blob = "\n\n".join(
-        f"## FILE: {name}\n{content}" for name, content in context.items()
-    )
-    return f"""
-You are KlassenPilot, an assistant for a Gymnasium Bayern teacher handling Chemie and Englisch in one class.
-
-Task:
-Given rough lesson notes and current markdown memory, propose complete updated content for these files:
-- lesson_graph.md
-- course_state.md
-- misconceptions.md
-- student_notes.md
-- open_loops.md
-
-Hard rules:
-- Do NOT mention writing files. You only propose content.
-- Keep student references pseudonymous only (S-001, S-002...).
-- Keep concise teacher-usable markdown.
-- Preserve useful existing information and integrate new notes.
-
-Return JSON only with this schema:
-{{
-  "lesson_graph.md": "...full markdown...",
-  "course_state.md": "...full markdown...",
-  "misconceptions.md": "...full markdown...",
-  "student_notes.md": "...full markdown...",
-  "open_loops.md": "...full markdown..."
-}}
-
-Current memory:
-{context_blob}
-
-New rough lesson notes:
-{notes}
-""".strip()
-
-
-def build_planning_prompt(context: Dict[str, str]) -> str:
-    context_blob = "\n\n".join(
-        f"## FILE: {name}\n{content}" for name, content in context.items()
-    )
-    return f"""
-You are KlassenPilot, planning the next lesson for Klasse 9b (Chemie + Englisch).
-
-Use the complete memory below to generate a concrete next lesson plan.
-
-Output in markdown with sections:
-1) Lesson goal(s)
-2) Starter (5-10 min)
-3) Core activities (with timing)
-4) Differentiation ideas
-5) Misconceptions to watch
-6) Exit ticket
-7) Homework / follow-up
-
-Keep practical and concise for a real teacher.
-
-Context:
-{context_blob}
-""".strip()
-
-
-async def run_agent(prompt: str, agent_name: str) -> str:
-    if Agent is None or Runner is None:
-        raise RuntimeError(
-            "OpenAI Agents SDK is not available. Install dependencies from requirements.txt"
-        ) from IMPORT_ERROR
-
-    agent = Agent(name=agent_name, instructions="Be accurate and return exactly what is requested.")
-    result = await Runner.run(agent, input=prompt)
-    return result.final_output
+def run_async(coro: Coroutine[Any, Any, Any]) -> Any:
+    return asyncio.run(coro)
 
 
 def ensure_session_state() -> None:
@@ -150,76 +34,251 @@ def ensure_session_state() -> None:
     st.session_state.setdefault("lesson_plan", None)
 
 
+def apply_theme() -> None:
+    st.markdown(
+        """
+        <style>
+        :root {
+            --kp-bg: #070a12;
+            --kp-panel: rgba(13, 19, 33, 0.88);
+            --kp-panel-2: rgba(18, 27, 45, 0.78);
+            --kp-line: rgba(119, 199, 255, 0.18);
+            --kp-text: #eef6ff;
+            --kp-muted: #8fa5bd;
+            --kp-cyan: #6ee7ff;
+            --kp-blue: #7aa2ff;
+        }
+
+        .stApp {
+            background:
+                linear-gradient(135deg, rgba(8, 13, 24, 0.98) 0%, rgba(9, 17, 31, 0.98) 48%, rgba(7, 10, 18, 0.98) 100%),
+                repeating-linear-gradient(90deg, rgba(110, 231, 255, 0.035) 0 1px, transparent 1px 72px);
+            color: var(--kp-text);
+        }
+
+        [data-testid="stSidebar"] {
+            background: rgba(5, 9, 17, 0.94);
+            border-right: 1px solid var(--kp-line);
+        }
+
+        .block-container {
+            padding-top: 2rem;
+            max-width: 1280px;
+        }
+
+        h1, h2, h3 {
+            letter-spacing: 0;
+        }
+
+        .kp-hero {
+            border: 1px solid var(--kp-line);
+            background: linear-gradient(135deg, rgba(11, 18, 31, 0.96), rgba(17, 26, 44, 0.82));
+            padding: 1.2rem 1.35rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            box-shadow: 0 18px 55px rgba(0, 0, 0, 0.25);
+        }
+
+        .kp-title {
+            color: var(--kp-text);
+            font-size: 2rem;
+            font-weight: 720;
+            line-height: 1.1;
+            margin: 0 0 0.35rem 0;
+        }
+
+        .kp-subtitle {
+            color: var(--kp-muted);
+            margin: 0;
+            font-size: 0.98rem;
+        }
+
+        .kp-chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.9rem;
+        }
+
+        .kp-chip {
+            border: 1px solid rgba(110, 231, 255, 0.22);
+            background: rgba(110, 231, 255, 0.08);
+            color: #c8f6ff;
+            border-radius: 999px;
+            padding: 0.24rem 0.58rem;
+            font-size: 0.78rem;
+            font-weight: 650;
+        }
+
+        .kp-section-label {
+            color: var(--kp-cyan);
+            font-size: 0.75rem;
+            font-weight: 760;
+            letter-spacing: 0.08em;
+            margin: 0.2rem 0 0.35rem 0;
+            text-transform: uppercase;
+        }
+
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            border-color: var(--kp-line);
+            background: var(--kp-panel);
+        }
+
+        .stTextArea textarea {
+            background: rgba(7, 12, 22, 0.92);
+            border: 1px solid var(--kp-line);
+            color: var(--kp-text);
+            border-radius: 8px;
+        }
+
+        .stButton > button {
+            border-radius: 8px;
+            border: 1px solid rgba(110, 231, 255, 0.24);
+            font-weight: 680;
+        }
+
+        .stCodeBlock {
+            border: 1px solid var(--kp-line);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_header(class_label: str) -> None:
+    st.markdown(
+        f"""
+        <div class="kp-hero">
+            <div class="kp-title">KlassenPilot</div>
+            <p class="kp-subtitle">Agent workspace for {class_label}</p>
+            <div class="kp-chip-row">
+                <span class="kp-chip">local wiki memory</span>
+                <span class="kp-chip">review before save</span>
+                <span class="kp-chip">Chemie + Englisch</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_memory_drafts(drafts: tuple[MemoryDraft, ...]) -> None:
+    st.markdown("### Proposed memory updates")
+    st.caption("Review the generated markdown before approving it.")
+
+    draft_by_filename = {draft.filename: draft for draft in drafts}
+    for filename in TARGET_MEMORY_FILENAMES:
+        draft = draft_by_filename[filename]
+        with st.expander(filename, expanded=filename == TARGET_MEMORY_FILENAMES[0]):
+            st.code(draft.markdown, language="markdown")
+
+
 def main() -> None:
     st.set_page_config(page_title="KlassenPilot", layout="wide")
     ensure_session_state()
-
-    st.title("KlassenPilot — Local Prototype")
-    st.caption("Teacher copilot for Gymnasium Bayern lessons (Chemie + Englisch).")
+    apply_theme()
+    app_bootstrap = bootstrap_app()
+    class_options = class_option_map(app_bootstrap.class_options)
 
     with st.sidebar:
-        st.header("Class")
+        st.markdown("### Class")
         class_key = st.selectbox(
             "Select class",
-            options=list(CLASS_OPTIONS.keys()),
-            format_func=lambda k: CLASS_OPTIONS[k].label,
+            options=list(class_options),
+            format_func=lambda key: class_options[key].label,
+        )
+        proposed_updates = update_bundle_from_session(
+            class_key,
+            st.session_state.proposed_updates,
         )
 
-    class_config = CLASS_OPTIONS[class_key]
-    st.subheader(f"Lesson logging for {class_config.label}")
+        st.markdown("### Status")
+        st.write("API key", "ready" if app_bootstrap.api_key_ready else "missing")
+        st.write("Update draft", "ready" if proposed_updates else "empty")
 
-    rough_notes = st.text_area(
-        "What happened in today's lesson?",
-        height=180,
-        placeholder="Paste rough notes here...",
-    )
+    class_label = class_options[class_key].label
+    render_header(class_label)
 
-    if st.button("Structure lesson notes", type="primary"):
-        if not rough_notes.strip():
-            st.warning("Please enter rough lesson notes first.")
-        else:
-            with st.spinner("Structuring notes with agent..."):
-                context = load_context(class_config)
-                prompt = build_structuring_prompt(rough_notes, context)
-                try:
-                    output = __import__("asyncio").run(run_agent(prompt, "memory-structurer"))
-                    st.session_state.proposed_updates = json.loads(output)
-                except Exception as exc:
-                    st.error(f"Failed to structure notes: {exc}")
+    left, right = st.columns([0.95, 1.25], gap="large")
 
-    proposed_updates = st.session_state.proposed_updates
-    if proposed_updates:
-        st.markdown("### Proposed memory updates (review before saving)")
-        for filename in TARGET_FILES:
-            st.markdown(f"#### {filename}")
-            st.code(proposed_updates.get(filename, ""), language="markdown")
+    with left:
+        with st.container(border=True):
+            st.markdown('<div class="kp-section-label">Lesson Log</div>', unsafe_allow_html=True)
+            rough_notes = st.text_area(
+                "What happened in today's lesson?",
+                height=230,
+                placeholder="Paste rough notes here...",
+            )
 
-        if st.button("Approve and save memory"):
-            missing = [f for f in TARGET_FILES if f not in proposed_updates]
-            if missing:
-                st.error(f"Missing proposed updates for: {', '.join(missing)}")
+            if st.button("Structure lesson notes", type="primary", use_container_width=True):
+                if not rough_notes.strip():
+                    st.warning("Please enter rough lesson notes first.")
+                else:
+                    with st.spinner("Structuring notes with agent..."):
+                        try:
+                            response = run_async(
+                                structure_lesson(
+                                    StructureLessonRequest(
+                                        class_key=class_key,
+                                        rough_notes=rough_notes,
+                                    )
+                                )
+                            )
+                            st.session_state.proposed_updates = response.update_bundle
+                        except Exception as exc:
+                            st.error(f"Failed to structure notes: {exc}")
+
+        with st.container(border=True):
+            st.markdown('<div class="kp-section-label">Next Lesson</div>', unsafe_allow_html=True)
+            if st.button("Generate next lesson plan", use_container_width=True):
+                with st.spinner("Generating lesson plan..."):
+                    try:
+                        response = run_async(
+                            generate_plan(GeneratePlanRequest(class_key=class_key))
+                        )
+                        st.session_state.lesson_plan = response.lesson_plan
+                    except Exception as exc:
+                        st.error(f"Failed to generate plan: {exc}")
+
+            lesson_plan = lesson_plan_from_session(
+                class_key,
+                st.session_state.lesson_plan,
+            )
+            if lesson_plan:
+                st.markdown(lesson_plan.markdown)
+
+    with right:
+        with st.container(border=True):
+            st.markdown('<div class="kp-section-label">Agent Output</div>', unsafe_allow_html=True)
+
+            memory_drafts = memory_drafts_from_session(
+                class_key,
+                st.session_state.proposed_updates,
+            )
+            if memory_drafts:
+                render_memory_drafts(memory_drafts)
+
+                if st.button("Approve and save memory", type="primary", use_container_width=True):
+                    request = save_memory_request_from_session(
+                        class_key,
+                        st.session_state.proposed_updates,
+                    )
+                    if request is None:
+                        st.error("No valid memory update draft is available.")
+                        return
+                    try:
+                        save_memory(request)
+                    except Exception as exc:
+                        st.error(f"Failed to save memory: {exc}")
+                    else:
+                        st.success("Memory saved.")
             else:
-                for filename, filepath in TARGET_FILES.items():
-                    write_markdown(filepath, proposed_updates[filename])
-                st.success("Memory saved.")
+                st.info("No proposed updates yet.")
 
-    st.markdown("---")
-    st.subheader("Plan next lesson")
-    if st.button("Generate next lesson plan"):
-        with st.spinner("Generating lesson plan..."):
-            context = load_context(class_config)
-            prompt = build_planning_prompt(context)
-            try:
-                lesson_plan = __import__("asyncio").run(run_agent(prompt, "lesson-planner"))
-                st.session_state.lesson_plan = lesson_plan
-            except Exception as exc:
-                st.error(f"Failed to generate plan: {exc}")
-
-    if st.session_state.lesson_plan:
-        st.markdown("### Next lesson plan")
-        st.markdown(st.session_state.lesson_plan)
-
-    if "OPENAI_API_KEY" not in os.environ:
+    if not app_bootstrap.api_key_ready:
         st.info("Set OPENAI_API_KEY in your environment before running agent actions.")
 
 
