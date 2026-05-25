@@ -20,7 +20,7 @@ else:
 
 ROOT = Path(__file__).parent
 WIKI_ROOT = ROOT / "teacher_wiki"
-CLASS_DIR = WIKI_ROOT / "classes" / "chemie_9b_2026_27"
+CLASS_DIR = WIKI_ROOT / "classes" / "class_9b_2026_27"
 
 TARGET_FILES = {
     "lesson_graph.md": CLASS_DIR / "lesson_graph.md",
@@ -39,9 +39,9 @@ class ClassConfig:
 
 
 CLASS_OPTIONS = {
-    "chemie_9b_2026_27": ClassConfig(
-        key="chemie_9b_2026_27",
-        label="Chemie 9b",
+    "class_9b_2026_27": ClassConfig(
+        key="class_9b_2026_27",
+        label="Klasse 9b (Chemie + Englisch)",
         class_dir=CLASS_DIR,
     )
 }
@@ -61,6 +61,7 @@ def load_context(config: ClassConfig) -> Dict[str, str]:
         "log.md": WIKI_ROOT / "log.md",
         "teacher_profile.md": WIKI_ROOT / "teacher_profile.md",
         "subjects/chemie.md": WIKI_ROOT / "subjects" / "chemie.md",
+        "subjects/english.md": WIKI_ROOT / "subjects" / "english.md",
         "classes/course_state.md": config.class_dir / "course_state.md",
         "classes/lesson_graph.md": config.class_dir / "lesson_graph.md",
         "classes/student_notes.md": config.class_dir / "student_notes.md",
@@ -75,7 +76,7 @@ def build_structuring_prompt(notes: str, context: Dict[str, str]) -> str:
         f"## FILE: {name}\n{content}" for name, content in context.items()
     )
     return f"""
-You are KlassenPilot, an assistant for a Gymnasium chemistry teacher.
+You are KlassenPilot, an assistant for a Gymnasium Bayern teacher handling Chemie and Englisch in one class.
 
 Task:
 Given rough lesson notes and current markdown memory, propose complete updated content for these files:
@@ -113,7 +114,7 @@ def build_planning_prompt(context: Dict[str, str]) -> str:
         f"## FILE: {name}\n{content}" for name, content in context.items()
     )
     return f"""
-You are KlassenPilot, planning the next Chemie 9b lesson.
+You are KlassenPilot, planning the next lesson for Klasse 9b (Chemie + Englisch).
 
 Use the complete memory below to generate a concrete next lesson plan.
 
@@ -154,7 +155,7 @@ def main() -> None:
     ensure_session_state()
 
     st.title("KlassenPilot — Local Prototype")
-    st.caption("Teacher copilot for Gymnasium chemistry lessons.")
+    st.caption("Teacher copilot for Gymnasium Bayern lessons (Chemie + Englisch).")
 
     with st.sidebar:
         st.header("Class")
