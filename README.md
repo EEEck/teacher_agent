@@ -16,21 +16,43 @@ KlassenPilot is a minimal teacher-level AI copilot prototype for a Gymnasium tea
 ## Project structure
 
 ```text
+app.py
+teacher_agent/
+|-- __init__.py
+|-- agent.py
+|-- backend.py
+|-- contracts.py
+|-- prompts.py
+|-- schemas.py
+|-- tools.py
+`-- wiki_store.py
 teacher_wiki/
-├── AGENTS.md
-├── index.md
-├── log.md
-├── teacher_profile.md
-├── subjects/
-│   └── chemie.md
-└── classes/
-    └── class_9b_2026_27/
-        ├── course_state.md
-        ├── lesson_graph.md
-        ├── student_notes.md
-        ├── misconceptions.md
-        └── open_loops.md
+|-- AGENTS.md
+|-- index.md
+|-- log.md
+|-- teacher_profile.md
+|-- subjects/
+|   |-- chemie.md
+|   `-- english.md
+`-- classes/
+    `-- class_9b_2026_27/
+        |-- course_state.md
+        |-- lesson_graph.md
+        |-- student_notes.md
+        |-- misconceptions.md
+        `-- open_loops.md
 ```
+
+## Architecture
+
+- `app.py` contains only Streamlit UI logic: layout, session state, buttons, messages, and rendering.
+- `teacher_agent/contracts.py` defines the fixed UI/backend boundary: request/response types, bootstrap data, and UI-facing memory drafts.
+- `teacher_agent/backend.py` is the facade the UI calls for app bootstrap, lesson structuring, lesson planning, and approved memory saves.
+- `teacher_agent/schemas.py` defines backend/domain schemas: `LessonLogInput`, `WikiUpdateProposal`, `WikiUpdateBundle`, and `LessonPlan`.
+- `teacher_agent/wiki_store.py` owns all wiki file reads/writes and restricts writes to the approved class-memory files.
+- `teacher_agent/tools.py` exposes safe app actions for loading context, preparing proposals, and applying approved updates.
+- `teacher_agent/prompts.py` contains the system prompt and task prompt builders.
+- `teacher_agent/agent.py` creates and runs the OpenAI Agents SDK agents and validates their outputs into schemas.
 
 ## Setup
 
